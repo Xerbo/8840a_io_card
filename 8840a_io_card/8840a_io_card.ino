@@ -1,5 +1,9 @@
+#include "config.h"
+
+#ifdef WIFI
 #include <WiFi.h>
 #include <AsyncTCP.h>
+#endif
 #include <HardwareSerial.h>
 #include <set>
 
@@ -7,13 +11,10 @@
 #include "decode.h"
 #include "scpi.h"
 
-// Fill in these and comment out the #error when done
-const char *ssid = "XXXX";
-const char *password = "XXXX";
-#error "Please fill in WiFi details"
-
 HardwareSerial dmm(2);
+#ifdef WIFI
 AsyncServer server(5025);
+#endif
 esp_timer_handle_t end_pulse_timer;
 
 Function function;
@@ -30,6 +31,7 @@ extern unsigned long wanted_samples;
 extern uint8_t packet[16];
 extern unsigned long packet_size;
 
+#ifdef WIFI
 // Bare minimum to capture the output of SCPI_Parser
 class TextStream : public Stream {
   public:
@@ -66,6 +68,7 @@ void on_connect(void *arg, AsyncClient *client) {
   client->onData(on_data);
   client->onDisconnect(on_disconnect);
 }
+#endif
 
 void setup() {
   Serial.begin(500000);
@@ -76,20 +79,28 @@ void setup() {
 
   init_scpi();
 
-  //pinMode(4, INPUT);
-  //attachInterrupt(digitalPinToInterrupt(4), trigger, RISING);
+  //pinMode(BEGIN_SAMPLE_PIN, INPUT);
+  //attachInterrupt(digitalPinToInterrupt(BEGIN_SAMPLE_PIN), trigger, RISING);
 
-  pinMode(2, OUTPUT);
+  pinMode(SAMPLE_COMPLETE_PIN, OUTPUT);
   const esp_timer_create_args_t end_pulse_timer_args = {
-    .callback = [](void *arg) { digitalWrite(2, LOW); },
+    .callback = [](void *arg) { digitalWrite(SAMPLE_COMPLETE_PIN, LOW); },
     .arg = NULL,
     .name = "end-pulse"
   };
   esp_timer_create(&end_pulse_timer_args, &end_pulse_timer);
 
-  WiFi.begin(ssid, password);
+#ifdef BEEPER
+  ledcAttachPin(BEEPER_PIN, BEEPER_CHANNEL);
+  ledcSetup(BEEPER_CHANNEL, 1000, 8);
+  ledcWrite(BEEPER_CHANNEL, 0);
+#endif
+
+#ifdef WIFI
+  WiFi.begin(WIFI_SSID, WIFI_PASS);
   server.begin();
   server.onClient(on_connect, NULL);
+#endif
 }
 
 void loop() {
@@ -104,9 +115,11 @@ void loop() {
        if (wanted_samples != 0) {
           String x = notation(reading, function);
           Serial.println(x);
+#ifdef WIFI
           for (AsyncClient *client : clients) {
             client->write(x.c_str(), x.length());
           }
+#endif
         }
         if (wanted_samples > 0) {
           wanted_samples--;
@@ -122,7 +135,7 @@ void loop() {
       if (packet_size == 2 && packet[1] == 0xE0) {
         // Official GPIB card uses a 2.5us pulse
         // Left at 1ms for testing purposes
-        digitalWrite(2, HIGH);
+        digitalWrite(SAMPLE_COMPLETE_PIN, HIGH);
         esp_timer_start_once(end_pulse_timer, 1000);
       }
       break;

@@ -6,6 +6,8 @@
 // Read buffer, used in other files
 uint8_t packet[16];
 unsigned long packet_size = 0;
+uint8_t tmp_packet[16];
+unsigned long packet_i = 0;
 
 // from 8840a_gpib.ino
 extern HardwareSerial dmm;
@@ -13,7 +15,6 @@ extern HardwareSerial dmm;
 // Write buffers, dont directly manipulate, use `send_packet`
 uint8_t write_buffer[16];
 unsigned long write_len = 0;
-uint8_t tmp_packet[16];
 unsigned long write_i = 0;
 bool writing = false;
 
