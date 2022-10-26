@@ -2,7 +2,7 @@
 #define FRAME_H_
 
 #include <cstdint>
-#include <Stream.h>
+#include <HardwareSerial.h>
 
 #define SIZE(x) (sizeof(x)/sizeof(x[0]))
 
@@ -15,11 +15,24 @@ const uint8_t USER_MESSAGE[] = {0x46, 0x40};
 const uint8_t SINGLE_TRIGGER[] = {0x41, 0x40};
 #define SINGLE_TRIGGER_SIZE SIZE(SINGLE_TRIGGER)
 
-// onReceive function for `dmm`
-void receive_callback();
+class DmmInterface {
+  public:
+    DmmInterface(int uart_port = 2);
+    bool send(const uint8_t *data, unsigned long n);
 
-/// Send a packet while managing error correction asynchronously
-/// @returns if the transfer could be performed
-bool send_packet(Stream &stream, const uint8_t *data, unsigned long n);
+    uint8_t packet[16];
+    unsigned long packet_size = 0;
+  private:
+    HardwareSerial uart;
+
+    bool writing = false;
+
+    uint8_t read_buffer[16];
+    uint8_t write_buffer[16];
+
+    unsigned long read_i = 0;
+    unsigned long write_i = 0;
+    unsigned long write_size = 0;
+};
 
 #endif

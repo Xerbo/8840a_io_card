@@ -12,10 +12,10 @@ Tested With:
 
 The Arduino code requies the following libraries to be installed:
 
-- [Vrekrer scpi parser](https://github.com/Vrekrer/Vrekrer_scpi_parser)
-- [AsyncTCP](https://github.com/me-no-dev/AsyncTCP)
+- [My fork of `Vrekrer scpi parser`](https://github.com/Xerbo/Vrekrer_scpi_parser/)
+- [`AsyncTCP`](https://github.com/me-no-dev/AsyncTCP)
 
-Open the the `8840a_io_card` folder in Arduino IDE and edit the WiFi credentials in `8840a_io_card.ino`.
+Open the the `8840a_io_card` folder in Arduino IDE and (if required) edit the WiFi credentials/pin config in `config.h`.
 
 ## Interfacing
 
@@ -25,7 +25,7 @@ You will need to connect the ESP32 with a circuit like this:
 
 ## Protocol
 
-8840a_io_card speaks (mostly standard) SCPI on the computer side of the interface, either over 500000 baud USB serial or TCP port 5025. The identify command returns fake manufacturer/model in order to trick libsigrok to communicating without modification.
+8840a_io_card speaks (mostly standard) SCPI on the computer side of the interface, either over 115200 baud USB serial or TCP port 5025. The identify command returns fake manufacturer/model in order to trick libsigrok to communicating without modification.
 
 Communication with `sigrok-cli` and [SmuView](https://github.com/knarfS/smuview) works fine.
 

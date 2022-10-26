@@ -11,26 +11,6 @@
 #include "decode.h"
 #include "scpi.h"
 
-HardwareSerial dmm(2);
-#ifdef WIFI
-AsyncServer server(5025);
-#endif
-esp_timer_handle_t end_pulse_timer;
-
-Function function;
-Range range;
-Speed speed;
-TriggerMode trigger_mode;
-float reading;
-
-// from scpi.cpp
-extern SCPI_Parser scpi;
-extern unsigned long wanted_samples;
-
-// From proto.cpp
-extern uint8_t packet[16];
-extern unsigned long packet_size;
-
 #ifdef WIFI
 // Bare minimum to capture the output of SCPI_Parser
 class TextStream : public Stream {
@@ -46,48 +26,42 @@ class TextStream : public Stream {
 };
 
 std::set<AsyncClient *> clients;
-void on_data(void *arg, AsyncClient *client, void *data, size_t len) {
-  char *_data = (char *)data;
-
-  // Remove last character and null terminate
-  _data[len-1] = '\0';
-
-  TextStream stream;
-  scpi.Execute(_data, stream);
-  client->write(stream.text.c_str(), stream.text.length());
-  clients.insert(client);
-}
-
-void on_disconnect(void *arg, AsyncClient *client) {
-  clients.erase(client);
-}
-
 void on_connect(void *arg, AsyncClient *client) {
   if (client == NULL) return;
 
-  client->onData(on_data);
-  client->onDisconnect(on_disconnect);
+  client->onData([](void *arg, AsyncClient *client, void *data, size_t len) {
+    char *_data = (char *)data;
+    // Remove last character and null terminate
+    _data[len-1] = '\0';
+
+    TextStream stream;
+    ScpiParser *scpi = (ScpiParser*)arg;
+    scpi->Execute(_data, stream);
+    client->write(stream.text.c_str(), stream.text.length());
+    clients.insert(client);
+  }, arg);
+
+  client->onDisconnect([](void *arg, AsyncClient *client) {
+    clients.erase(client);
+  });
 }
 #endif
 
 void setup() {
-  Serial.begin(500000);
-
-  dmm.begin(62500, SERIAL_8N2);
-  dmm.setRxFIFOFull(1);
-  dmm.onReceive(receive_callback);
-
-  init_scpi();
+  Serial.begin(115200);
 
   //pinMode(BEGIN_SAMPLE_PIN, INPUT);
   //attachInterrupt(digitalPinToInterrupt(BEGIN_SAMPLE_PIN), trigger, RISING);
 
   pinMode(SAMPLE_COMPLETE_PIN, OUTPUT);
+  digitalWrite(SAMPLE_COMPLETE_PIN, LOW);
   const esp_timer_create_args_t end_pulse_timer_args = {
     .callback = [](void *arg) { digitalWrite(SAMPLE_COMPLETE_PIN, LOW); },
     .arg = NULL,
     .name = "end-pulse"
   };
+
+  esp_timer_handle_t end_pulse_timer;
   esp_timer_create(&end_pulse_timer_args, &end_pulse_timer);
 
 #ifdef BEEPER
@@ -96,52 +70,66 @@ void setup() {
   ledcWrite(BEEPER_CHANNEL, 0);
 #endif
 
+  Function function = VDC;
+  Range range = 1;
+  Speed speed = Slow;
+  TriggerMode trigger_mode = Internal;
+  float reading = 0.0f;
+
+  DmmInterface dmm;
+  ScpiParser scpi(dmm, reading, function, range);
+
 #ifdef WIFI
   WiFi.begin(WIFI_SSID, WIFI_PASS);
+  AsyncServer server(5025);
   server.begin();
-  server.onClient(on_connect, NULL);
+  server.onClient(on_connect, (void *)&scpi);
 #endif
-}
 
-void loop() {
-  scpi.ProcessInput(Serial, "\n");
-  if (packet_size == 0 || !check_parity(packet, packet_size)) {
-    return;
-  }
+  // Main loop, processes unimportant things
+  // Namely: decoding packets and parsing SCPI commands
+  while (true) {
+    scpi.ProcessInput(Serial, "\n");
+    if (dmm.packet_size == 0 || !check_parity(dmm.packet, dmm.packet_size)) {
+      continue;
+    }
 
-  switch (packet[0]) {
-    case 0x67:
-      if (packet_size == 9 && decode_reading_packet(packet, &reading, &range)) {
-       if (wanted_samples != 0) {
-          String x = notation(reading, function);
-          Serial.println(x);
+    switch (dmm.packet[0]) {
+      case 0x67:
+        if (dmm.packet_size == 9 && decode_reading_packet(dmm.packet, &reading, &range)) {
+          if (scpi.wanted_samples != 0) {
+            String x = notation(reading, function);
+            Serial.println(x);
 #ifdef WIFI
-          for (AsyncClient *client : clients) {
-            client->write(x.c_str(), x.length());
-          }
+            for (AsyncClient *client : clients) {
+              client->write(x.c_str(), x.length());
+            }
 #endif
+          }
+          if (scpi.wanted_samples > 0) {
+            scpi.wanted_samples--;
+          }
         }
-        if (wanted_samples > 0) {
-          wanted_samples--;
+        break;
+      case 0xE5:
+        if (dmm.packet_size == 7) {
+          decode_status_packet(dmm.packet, &function, &speed, &trigger_mode);
         }
-      }
-      break;
-    case 0xE5:
-      if (packet_size == 7) {
-        decode_status_packet(packet, &function, &speed, &trigger_mode);
-      }
-      break;
-    case 0x61:
-      if (packet_size == 2 && packet[1] == 0xE0) {
-        // Official GPIB card uses a 2.5us pulse
-        // Left at 1ms for testing purposes
-        digitalWrite(SAMPLE_COMPLETE_PIN, HIGH);
-        esp_timer_start_once(end_pulse_timer, 1000);
-      }
-      break;
-    default:
-      break;
-  }
+        break;
+      case 0x61:
+        if (dmm.packet_size == 2 && dmm.packet[1] == 0xE0) {
+          // Official GPIB card uses a 2.5us pulse
+          // Left at 1ms for testing purposes
+          digitalWrite(SAMPLE_COMPLETE_PIN, HIGH);
+          esp_timer_start_once(end_pulse_timer, 1000);
+        }
+        break;
+      default:
+        break;
+    }
 
-  packet_size = 0;
+    dmm.packet_size = 0;
+  }
 }
+
+void loop() { }

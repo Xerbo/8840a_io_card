@@ -1,56 +1,44 @@
 #include "frame.h"
 
 #include <cstring>
-#include <HardwareSerial.h>
 
-// Read buffer, used in other files
-uint8_t packet[16];
-unsigned long packet_size = 0;
-uint8_t tmp_packet[16];
-unsigned long packet_i = 0;
+DmmInterface::DmmInterface(int uart_port) : uart(uart_port) {
+  uart.begin(62500, SERIAL_8N2);
+  uart.setRxFIFOFull(1);
+  uart.onReceive([this]() {
+    uint8_t x = uart.read();
 
-// from 8840a_gpib.ino
-extern HardwareSerial dmm;
-
-// Write buffers, dont directly manipulate, use `send_packet`
-uint8_t write_buffer[16];
-unsigned long write_len = 0;
-unsigned long write_i = 0;
-bool writing = false;
-
-void receive_callback() {
-  uint8_t x = dmm.read();
-
-  if (writing) {
-    if (write_i == write_len) {
-      writing = false;
-      write_i = 0;
+    if (writing) {
+      if (write_i == write_size) {
+        writing = false;
+        write_i = 0;
+      } else {
+        uart.write(write_buffer[write_i++]);
+      }
     } else {
-      dmm.write(write_buffer[write_i++]);
-    }
-  } else {
-    dmm.write(x);
+      uart.write(x);
 
-    uint8_t header = (x >> 4) & 0b111;
-    if (header == 0b110 || packet_i > 0) {
-      tmp_packet[packet_i++] = x;
+      uint8_t header = (x >> 4) & 0b111;
+      if (header == 0b110 || read_i > 0) {
+        read_buffer[read_i++] = x;
+      }
+      if (x == 0xE0 || x == 0x40 || read_i == 16) {
+        memcpy(packet, read_buffer, 16);
+        packet_size = read_i;
+        read_i = 0;
+      }
     }
-    if (x == 0xE0 || x == 0x40 || packet_i == 16) {
-      memcpy(packet, tmp_packet, 16);
-      packet_size = packet_i;
-      packet_i = 0;
-    }
-  }
+  });
 }
 
-bool send_packet(Stream &stream, const uint8_t *data, unsigned long n) {
-  if (n > 16) return false;
+bool DmmInterface::send(const uint8_t *data, unsigned long n) {
+  if (n > 16 || writing) return false;
 
   memcpy(write_buffer, data, n);
-  write_len = n;
+  write_size = n;
   writing = true;
 
-  stream.write(write_buffer[write_i++]);
+  uart.write(write_buffer[write_i++]);
 
   return true;
 }

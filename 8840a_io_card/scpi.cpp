@@ -1,19 +1,5 @@
 #include "scpi.h"
 
-#include "decode.h"
-#include "frame.h"
-
-unsigned long wanted_samples = 0;
-SCPI_Parser scpi;
-
-// from 8840a_io_card.ino
-extern HardwareSerial dmm;
-extern Function function;
-extern Range range;
-extern Speed speed;
-extern float reading;
-extern SCPI_Parser scpi;
-
 #define PARAMETER_CHECK(x) \
   if (parameters.Size() < x) { \
     interface.println("-109,Missing parameter"); \
@@ -24,123 +10,111 @@ extern SCPI_Parser scpi;
     return; \
   }
 
+#define CALLBACK_ARGUMENTS SCPI_C commands, SCPI_P parameters, Stream &interface
+
 // TODO: can fasely return true
 bool compare_command(String a, String command) {
   return (command == a || command.startsWith(a));
 }
 
-// IEE 488.2 "mandatory" commands
-void Identify(SCPI_C commands, SCPI_P parameters, Stream &interface) {
-  PARAMETER_CHECK(0);
-  interface.println("Agilent,34405A,00000000,v0.0.1");
-}
-void OPC(SCPI_C commands, SCPI_P parameters, Stream &interface) {
-  PARAMETER_CHECK(0);
-  interface.println("1");
-};
-void Reset(SCPI_C commands, SCPI_P parameters, Stream &interface) {
-  PARAMETER_CHECK(0);
-  interface.println("1");
-  wanted_samples = 0;
-}
+ScpiParser::ScpiParser(DmmInterface &dmm, float &reading, Function &function, Range &range)
+  : _dmm(dmm),
+    _reading(reading),
+    _function(function),
+    _range(range) {
 
-// Other
-void Init(SCPI_C commands, SCPI_P parameters, Stream &interface) {
-  PARAMETER_CHECK(0);
-  wanted_samples = 0;
-}
-void Abort(SCPI_C commands, SCPI_P parameters, Stream &interface) {
-  PARAMETER_CHECK(0);
-  interface.println("1");
-  wanted_samples = 0;
-}
-void Measure(SCPI_C commands, SCPI_P parameters, Stream &interface) {
-  PARAMETER_CHECK(0);
-}
+  std::function<void(CALLBACK_ARGUMENTS)> Identify = [this](CALLBACK_ARGUMENTS) {
+    PARAMETER_CHECK(0);
+    interface.println("Agilent,34405A,00000000,v0.0.1");
+  };
+  std::function<void(CALLBACK_ARGUMENTS)> OPC = [this](CALLBACK_ARGUMENTS) {
+    PARAMETER_CHECK(0);
+    interface.println("1");
+  };
+  std::function<void(CALLBACK_ARGUMENTS)> Reset = [this](CALLBACK_ARGUMENTS) {
+    PARAMETER_CHECK(0);
+    interface.println("1");
+    wanted_samples = 0;
+  };
+  std::function<void(CALLBACK_ARGUMENTS)> Init = [this](CALLBACK_ARGUMENTS) {
+    PARAMETER_CHECK(0);
+    wanted_samples = 0;
+  };
+  std::function<void(CALLBACK_ARGUMENTS)> Abort = [this](CALLBACK_ARGUMENTS) {
+    PARAMETER_CHECK(0);
+    interface.println("1");
+    wanted_samples = 0;
+  };
+  std::function<void(CALLBACK_ARGUMENTS)> Measure = [this](CALLBACK_ARGUMENTS) {
+    PARAMETER_CHECK(0);
+  };
+  std::function<void(CALLBACK_ARGUMENTS)> Read = [this](CALLBACK_ARGUMENTS) {
+    PARAMETER_CHECK(0);
+    wanted_samples = 1;
+  };
+  std::function<void(CALLBACK_ARGUMENTS)> Fetch = [this](CALLBACK_ARGUMENTS) {
+    PARAMETER_CHECK(0);
+    interface.println(notation(_reading, _function));
+  };
+  std::function<void(CALLBACK_ARGUMENTS)> SetFunction = [this](CALLBACK_ARGUMENTS) {
+    PARAMETER_CHECK(0);
 
-// Acquisition commands
-void Read(SCPI_C commands, SCPI_P parameters, Stream &interface) {
-  PARAMETER_CHECK(0);
-  wanted_samples = 1;
-}
-void Fetch(SCPI_C commands, SCPI_P parameters, Stream &interface) {
-  PARAMETER_CHECK(0);
-  interface.println(notation(reading, function));
-}
+    uint8_t function;
+    if (compare_command(commands[1], "VOLTage")) {
+      function = compare_command(commands[2], "DC") ? 1 : 2;
+    } else if (compare_command(commands[1], "CURRent")) {
+      function = compare_command(commands[2], "DC") ? 5 : 6;
+    } else if (compare_command(commands[1], "RESistance")) {
+      function = 3;
+    } else if (compare_command(commands[1], "FRESistance")) {
+      function = 4;
+    }
 
-// Function set comamnds
-void SetFunction(SCPI_C commands, SCPI_P parameters, Stream &interface) {
-  PARAMETER_CHECK(0);
+    uint8_t packet[6];
+    encode_mode_packet(packet, function);
+    _dmm.send(packet, 6);
+  };
+  std::function<void(CALLBACK_ARGUMENTS)> Config = [this](CALLBACK_ARGUMENTS) {
+    PARAMETER_CHECK(0);
+    interface.println(mode_names[_function] + " " + String(notation(pow(10, _range - 2) * 2)) + ",+1.00000E-06");
+  };
+  std::function<void(CALLBACK_ARGUMENTS)> SetRangeAuto = [this](CALLBACK_ARGUMENTS) {
+    PARAMETER_CHECK(0);
+    interface.println("1");
 
-  uint8_t function;
-  if (compare_command(commands[1], "VOLTage")) {
-    function = compare_command(commands[2], "DC") ? 1 : 2;
-  } else if (compare_command(commands[1], "CURRent")) {
-    function = compare_command(commands[2], "DC") ? 5 : 6;
-  } else if (compare_command(commands[1], "RESistance")) {
-    function = 3;
-  } else if (compare_command(commands[1], "FRESistance")) {
-    function = 4;
-  }
+    uint8_t packet[6];
+    encode_mode_packet(packet, 0, 1);
+    _dmm.send(packet, 6);
+  };
 
-  uint8_t packet[6];
-  encode_mode_packet(packet, function);
-  send_packet(dmm, packet, 6);
-}
-void Config(SCPI_C commands, SCPI_P parameters, Stream &interface) {
-  PARAMETER_CHECK(0);
-  interface.println(mode_names[function] + " " + String(notation(pow(10, range - 2) * 2)) + ",+1.00000E-06");
-};
-
-// Non standard commands :(
-void SetRangeAuto(SCPI_C commands, SCPI_P parameters, Stream &interface) {
-  PARAMETER_CHECK(0);
-  interface.println("1");
-
-  uint8_t packet[6];
-  encode_mode_packet(packet, 0, 1);
-  send_packet(dmm, packet, 6);
-}
-
-void init_scpi() {
-  // IEE 488.2 "mandatory" commands
-  //scpi.RegisterCommand("*CLS",  &CLS);
-  //scpi.RegisterCommand("*ESE",  &ESE);
-  //scpi.RegisterCommand("*ESE?", &ESE);
-  //scpi.RegisterCommand("*ESR?", &ESR);
-  scpi.RegisterCommand("*IDN?", &Identify);
-  //scpi.RegisterCommand("*OPC",  &OPC);
-  scpi.RegisterCommand("*OPC?", &OPC);
-  scpi.RegisterCommand("*RST",  &Reset);
-  //scpi.RegisterCommand("*SRE",  &SRE);
-  //scpi.RegisterCommand("*SRE?", &SRE);
-  //scpi.RegisterCommand("*STB?", &STB);
-  //scpi.RegisterCommand("*TST?", &TST);
-  //scpi.RegisterCommand("*WAI",  &WAI);
+  // IEE 488.2 mandatory commands
+  parser.RegisterCommand("*IDN?", Identify);
+  parser.RegisterCommand("*OPC?", OPC);
+  parser.RegisterCommand("*RST",  Reset);
 
   // Other
-  scpi.RegisterCommand("INITiate", &Init);
-  scpi.RegisterCommand("ABORT",    &Abort);
-  scpi.RegisterCommand("MEASure",  &Measure);
+  parser.RegisterCommand("INITiate", Init);
+  parser.RegisterCommand("ABORT",    Abort);
+  parser.RegisterCommand("MEASure",  Measure);
 
   // Acquisition commands
-  scpi.RegisterCommand("READ?",  &Read);
-  scpi.RegisterCommand("FETCh?", &Fetch);
+  parser.RegisterCommand("READ?",  Read);
+  parser.RegisterCommand("FETCh?", Fetch);
 
   // Function set comamnds
-  scpi.RegisterCommand("CONFigure:VOLTage:DC",  &SetFunction);
-  scpi.RegisterCommand("CONFigure:VOLTage:AC",  &SetFunction);
-  scpi.RegisterCommand("CONFigure:CURRent:DC",  &SetFunction);
-  scpi.RegisterCommand("CONFigure:CURRent:AC",  &SetFunction);
-  scpi.RegisterCommand("CONFigure:RESistance",  &SetFunction);  
-  scpi.RegisterCommand("CONFigure:FRESistance", &SetFunction);
-  scpi.RegisterCommand("CONFigure?",            &Config);
+  parser.RegisterCommand("CONFigure:VOLTage:DC",  SetFunction);
+  parser.RegisterCommand("CONFigure:VOLTage:AC",  SetFunction);
+  parser.RegisterCommand("CONFigure:CURRent:DC",  SetFunction);
+  parser.RegisterCommand("CONFigure:CURRent:AC",  SetFunction);
+  parser.RegisterCommand("CONFigure:RESistance",  SetFunction);
+  parser.RegisterCommand("CONFigure:FRESistance", SetFunction);
+  parser.RegisterCommand("CONFigure?",            Config);
 
   // Non standard commands :(
-  scpi.RegisterCommand("VOLTage:DC:RANGE:AUTO?",  &SetRangeAuto);
-  scpi.RegisterCommand("VOLTage:AC:RANGE:AUTO?",  &SetRangeAuto);
-  scpi.RegisterCommand("CURRent:DC:RANGE:AUTO?",  &SetRangeAuto);
-  scpi.RegisterCommand("CURRent:AC:RANGE:AUTO?",  &SetRangeAuto);
-  scpi.RegisterCommand("RESistance:RANGE:AUTO?",  &SetRangeAuto);  
-  scpi.RegisterCommand("FRESistance:RANGE:AUTO?", &SetRangeAuto);
+  parser.RegisterCommand("VOLTage:DC:RANGE:AUTO?",  SetRangeAuto);
+  parser.RegisterCommand("VOLTage:AC:RANGE:AUTO?",  SetRangeAuto);
+  parser.RegisterCommand("CURRent:DC:RANGE:AUTO?",  SetRangeAuto);
+  parser.RegisterCommand("CURRent:AC:RANGE:AUTO?",  SetRangeAuto);
+  parser.RegisterCommand("RESistance:RANGE:AUTO?",  SetRangeAuto);
+  parser.RegisterCommand("FRESistance:RANGE:AUTO?", SetRangeAuto);
 }
