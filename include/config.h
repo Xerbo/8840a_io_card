@@ -1,4 +1,4 @@
-//#define WIFI
+#define WIFI
 #define WIFI_SSID "Your WiFi SSID here"
 #define WIFI_PASS "Your WiFi password here"
 

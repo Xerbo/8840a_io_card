@@ -10,16 +10,11 @@ Tested With:
 
 ## Compiling
 
-The Arduino code requies the following libraries to be installed:
-
-- [My fork of `Vrekrer scpi parser`](https://github.com/Xerbo/Vrekrer_scpi_parser/)
-- [`AsyncTCP`](https://github.com/me-no-dev/AsyncTCP)
-
-Open the the `8840a_io_card` folder in Arduino IDE and (if required) edit the WiFi credentials/pin config in `config.h`.
+This project uses [PlatformIO](https://platformio.org/) see the [wiki](https://docs.platformio.org/en/latest/) for installation instructions.
 
 ## Interfacing
 
-You will need to connect the ESP32 with a circuit like this:
+You will need to connect the ESP32 with a circuit like this, by default UART2 is used:
 
 ![Interface Schematic](wiring.png)
 

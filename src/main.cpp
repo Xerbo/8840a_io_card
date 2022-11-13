@@ -20,9 +20,9 @@ class TextStream : public Stream {
       text += (char)x;
       return 1;
     }
-    int available() { }
-    int read() { }
-    int peek() { }
+    int available() { return 0; }
+    int read() { return 0; }
+    int peek() { return 0; }
 };
 
 std::set<AsyncClient *> clients;
